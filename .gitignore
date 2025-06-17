@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Environment files
+.env
+venv/
+env/
+
+# VS Code settings
+.vscode/
+
+# Local configuration
+telegram_chat_id.txt
+sms_ready.flag
+
+# System files
+.DS_Store
+Thumbs.db
