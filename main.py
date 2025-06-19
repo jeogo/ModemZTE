@@ -2,12 +2,28 @@ import sys
 import os
 import time
 import threading
-from modem import find_modem_port, listen_for_sms_with_event
-from telegram_bot import run_bot
-from db import init_db
-from logger import setup_logger, print_status
+from src.sms.modem import find_modem_port, listen_for_sms_with_event
+from src.bot.telegram_bot import run_bot
+from src.utils.db import init_db
+from src.utils.logger import setup_logger, print_status
+from src.utils.paths import DATA_DIR
+
+# تأكد من وجود مجلد data
+DATA_DIR.mkdir(exist_ok=True)
 
 logger = setup_logger('main')
+
+LOCK_FILE = 'bot.lock'
+if os.path.exists(LOCK_FILE):
+    print('❌ يوجد نسخة أخرى من البوت تعمل بالفعل. الرجاء إغلاقها أولاً.')
+    exit(1)
+with open(LOCK_FILE, 'w') as f:
+    f.write('lock')
+import atexit
+def remove_lock():
+    if os.path.exists(LOCK_FILE):
+        os.remove(LOCK_FILE)
+atexit.register(remove_lock)
 
 def run_modem_service():
     """Run the modem SMS polling service forever."""
@@ -24,6 +40,19 @@ def run_modem_service():
             time.sleep(5)
 
 def run_telegram_service():
+    # انتظر حتى يصبح النظام جاهزاً قبل بدء البوت (حتى في التشغيل المنفصل)
+    from src.utils.paths import DATA_DIR
+    import os, time
+    sms_ready_flag = DATA_DIR / 'sms_ready.flag'
+    waited = 0
+    print_status("[SYSTEM] Waiting for SMS system to become ready...", "INFO")
+    while not os.path.exists(sms_ready_flag):
+        time.sleep(1)
+        waited += 1
+        if waited % 10 == 0:
+            print_status(f"[SYSTEM] Still waiting for SMS system... ({waited}s)", "INFO")
+    print_status("[SYSTEM] ✓ SMS System Ready - Starting Telegram bot...", "SUCCESS")
+    time.sleep(2)
     try:
         run_bot()
     except KeyboardInterrupt:
@@ -40,7 +69,7 @@ def print_usage():
 
 def wait_for_sms_ready(timeout=60):
     """Wait for the SMS system to signal readiness (via flag file)."""
-    sms_ready_flag = 'sms_ready.flag'
+    sms_ready_flag = DATA_DIR / 'sms_ready.flag'
     waited = 0
     print_status("[SYSTEM] Waiting for SMS system to become ready...", "INFO")
     while waited < timeout:

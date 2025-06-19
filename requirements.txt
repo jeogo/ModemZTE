@@ -1,2 +1,5 @@
 pyserial>=3.5
 python-telegram-bot>=13.7
+reportlab>=4.0.4
+arabic-reshaper>=3.0.0
+python-bidi>=0.4.2

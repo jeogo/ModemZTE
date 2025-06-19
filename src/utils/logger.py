@@ -33,12 +33,13 @@ def write_to_log(msg, log_file='received.log'):
         pass
 
 def print_status(msg, msg_type="INFO"):
-    """Print only important status messages"""
+    """طباعة وتسجيل كل الرسائل المهمة في سجل خاص"""
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    formatted_msg = f"[{timestamp}] {msg}"
     if msg_type in ["ERROR", "SUCCESS"]:
-        timestamp = datetime.now().strftime('%H:%M:%S')
-        formatted_msg = f"[{timestamp}] {msg}"
         print(formatted_msg)
-    
-    # Always log errors to error.log
+    # سجل كل الرسائل (حتى الطويلة) في ملف received.log
+    write_to_log(formatted_msg, 'received.log')
+    # سجل الأخطاء في ملف error.log دائماً
     if msg_type == "ERROR":
-        write_to_log(msg, 'error.log')
+        write_to_log(formatted_msg, 'error.log')

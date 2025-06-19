@@ -3,8 +3,9 @@ import serial.tools.list_ports
 import time
 import re
 from datetime import datetime
-from db import save_sms, message_exists
-from logger import print_status
+from src.utils.db import save_sms, message_exists
+from src.utils.logger import print_status
+from src.utils.paths import DATA_DIR
 from functools import lru_cache
 
 # Cache for decoded results
@@ -364,34 +365,42 @@ def decode_message_content(content):
         return content
 
 def process_message(ser, index, stat, sender, date, content):
-    """Process and handle a single message with optimized processing"""
+    """معالجة وحفظ رسالة واحدة دائماً حتى لو كانت مكررة"""
     try:
-        # Use cached decoder for sender
-        decoded_sender = _cached_decode_ucs2(sender)
+        print_status(f"\n=== بدء معالجة الرسالة ===", "INFO")
+        print_status(f"المرسل الأصلي: {sender}", "DEBUG")
+        print_status(f"المحتوى الأصلي: {content}", "DEBUG")
+        print_status(f"التاريخ: {date}", "DEBUG")
         
-        # Quick validation
-        content = content.strip()
-        if not content or not sender:
-            return False
-            
-        # Use cached decoder for content
-        decoded_content = _cached_decode_ucs2(content)
+        # فك تشفير المرسل والمحتوى
+        decoded_sender = decode_sender(sender)
+        print_status(f"المرسل بعد فك التشفير: {decoded_sender}", "DEBUG")
         
-        # Only log if debug is really needed
-        if any(c in decoded_content for c in ('ERROR', 'FAILED', 'ALERT')):
-            print_status(f"Processing important message from {decoded_sender}", "INFO")
-            
-        # Save to database
-        if not save_sms(stat, decoded_sender, date, decoded_content):
-            print_status("Failed to save message to database", "ERROR")
+        decoded_content = decode_mixed_content(content.strip())
+        print_status(f"المحتوى بعد فك التشفير: {decoded_content}", "DEBUG")
+        
+        # تحقق سريع من صحة البيانات
+        if not decoded_content or not decoded_sender:
+            print_status("محتوى الرسالة أو المرسل فارغ", "ERROR")
             return False
-            
-        # Delete from SIM - use optimized AT command
+        
+        # حفظ في قاعدة البيانات دائماً
+        saved = save_sms(stat, decoded_sender, date, decoded_content)
+        if not saved:
+            print_status("فشل في حفظ الرسالة في قاعدة البيانات", "ERROR")
+            return False
+        print_status("✅ تم حفظ الرسالة في قاعدة البيانات", "SUCCESS")
+        
+        # حذف من الشريحة بعد التأكد من الحفظ
         resp = send_at_command(ser, f'AT+CMGD={index}', wait=0.2)
-        return 'OK' in resp
-            
+        if 'OK' not in resp:
+            print_status("فشل في حذف الرسالة من الشريحة", "ERROR")
+            return False
+
+        print_status("✅ تم معالجة الرسالة بنجاح", "SUCCESS")
+        return True
     except Exception as e:
-        print_status(f"Error processing message: {e}", "ERROR")
+        print_status(f"خطأ في معالجة الرسالة: {e}", "ERROR")
         return False
 
 def find_modem_port():
@@ -671,7 +680,7 @@ def listen_for_sms_with_event(port, got_first_sms_event):
     error_count = 0
     poll_interval = 5
     first_sms_processed = False
-    sms_ready_flag = 'sms_ready.flag'
+    sms_ready_flag = DATA_DIR / 'sms_ready.flag'
     messages_found = 0
     
     # Remove any old ready flag
