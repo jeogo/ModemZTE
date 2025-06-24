@@ -25,13 +25,13 @@ def ensure_arabic_fonts():
     try:
         # التحقق من وجود الملف
         if not os.path.exists(NOTO_ARABIC_FONT):
-            print_status(f"❌ ملف الخط غير موجود في المسار: {NOTO_ARABIC_FONT}", "ERROR")
+            print_status(f"ERROR: ملف الخط غير موجود في المسار: {NOTO_ARABIC_FONT}", "ERROR")
             return False
         
         # التحقق من حجم الملف
         font_size = os.path.getsize(NOTO_ARABIC_FONT)
         if font_size < 1000:  # الملف صغير جدًا ليكون خطًا صالحًا
-            print_status("❌ ملف الخط تالف أو غير مكتمل", "ERROR")
+            print_status("ERROR: ملف الخط تالف أو غير مكتمل", "ERROR")
             return False
 
         # إلغاء تسجيل الخط إذا كان مسجلاً مسبقاً
@@ -44,14 +44,14 @@ def ensure_arabic_fonts():
             
         # التحقق من نجاح التسجيل
         if FONT_NAME not in pdfmetrics.getRegisteredFontNames():
-            print_status("❌ فشل تسجيل الخط", "ERROR")
+            print_status("ERROR: فشل تسجيل الخط", "ERROR")
             return False
             
-        print_status("✅ تم تسجيل الخط العربي بنجاح", "SUCCESS")
+        print_status("تم تسجيل الخط العربي بنجاح", "SUCCESS")
         return True
 
     except Exception as e:
-        print_status(f"❌ خطأ في تسجيل الخط: {str(e)}", "ERROR")
+        print_status(f"ERROR: خطأ في تسجيل الخط: {str(e)}", "ERROR")
         return False
 
 def get_date_range(period):
@@ -229,7 +229,7 @@ def create_pdf_report(data, period, filename):
         # بناء المستند
         try:
             doc.build(story)
-            print_status("✅ تم إنشاء التقرير بنجاح", "SUCCESS")
+            print_status("تم إنشاء التقرير بنجاح", "SUCCESS")
             return True
         except Exception as e:
             print_status(f"خطأ في بناء التقرير: {e}", "ERROR")
@@ -251,7 +251,7 @@ def generate_report(period):
         data = get_successful_verifications(start_date, end_date)
         
         if not data:
-            return None, "❌ لا توجد عمليات تحقق ناجحة في الفترة المحددة."
+            return None, "لا توجد عمليات تحقق ناجحة في الفترة المحددة."
         
         reports_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'reports')
         if not os.path.exists(reports_dir):
@@ -260,10 +260,10 @@ def generate_report(period):
         filename = os.path.join(reports_dir, f'report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf')
         
         if create_pdf_report(data, period, filename):
-            return filename, f"✅ تم إنشاء التقرير بنجاح! ({len(data)} عملية)"
+            return filename, f"تم إنشاء التقرير بنجاح! ({len(data)} عملية)"
         else:
-            return None, "❌ حدث خطأ أثناء إنشاء التقرير."
+            return None, "حدث خطأ أثناء إنشاء التقرير."
             
     except Exception as e:
         print_status(f"خطأ في إنشاء التقرير: {e}", "ERROR")
-        return None, f"❌ حدث خطأ: {str(e)}"
+        return None, f"حدث خطأ: {str(e)}"

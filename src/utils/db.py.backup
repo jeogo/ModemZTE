@@ -133,14 +133,10 @@ def verify_message_saved(sender, content):
         return False
 
 def message_exists(sender, content):
-    """التحقق من وجود الرسالة في قاعدة البيانات مع ضمان تشفير UTF-8"""
+    """التحقق من وجود الرسالة في قاعدة البيانات"""
     try:
-        # Normalize UTF-8 for consistent comparison
-        normalized_sender = normalize_utf8(sender)
-        normalized_content = normalize_utf8(content)
-        
         with get_db_connection(commit_on_success=False) as conn:
-            cursor = conn.execute('SELECT id FROM sms WHERE sender = ? AND content = ?', (normalized_sender, normalized_content))
+            cursor = conn.execute('SELECT id FROM sms WHERE sender = ? AND content = ?', (sender, content))
             result = cursor.fetchone()
             if result:
                 print_status(f"الرسالة موجودة مسبقاً في قاعدة البيانات", "DEBUG")
@@ -150,194 +146,36 @@ def message_exists(sender, content):
         print_status(f"خطأ في التحقق من وجود الرسالة: {e}", "ERROR")
         return False
 
-def normalize_utf8(text):
-    """Ensure text is properly UTF-8 encoded for database storage"""
-    try:
-        if not text:
-            return ""
-        # Convert to bytes then back to string to ensure proper UTF-8 encoding
-        return text.encode('utf-8', errors='replace').decode('utf-8').strip()
-    except Exception:
-        return str(text).strip() if text else ""
-
-def save_sms(status, sender, timestamp, content, force_save=False):
-    """حفظ رسالة SMS مع إمكانية فرض الحفظ حتى للرسائل المعالجة مسبقاً وضمان تشفير UTF-8"""
+def save_sms(status, sender, timestamp, content):
+    """حفظ رسالة SMS جديدة في قاعدة البيانات مع تجنب التكرار"""
     try:
         # تحويل التاريخ لصيغة موحدة
         parsed_date = parse_modem_date(timestamp)
-        
-        # التأكد من وجود القيم المطلوبة
-        if not parsed_date:
-            parsed_date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Normalize UTF-8 encoding for sender and content
-        normalized_sender = normalize_utf8(sender)
-        normalized_content = normalize_utf8(content)
-        normalized_status = normalize_utf8(status)
-        
-        with get_db_connection() as conn:
-            if not force_save:
-                # التحقق العادي من التكرار (فقط في آخر 5 دقائق)
-                cursor = conn.execute('''
-                    SELECT id FROM sms 
-                    WHERE sender = ? AND content = ? 
-                    AND datetime(received_date) > datetime('now', '-5 minutes')
-                    LIMIT 1
-                ''', (normalized_sender, normalized_content))
-                
-                existing = cursor.fetchone()
-                if existing:
-                    print_status(f"⚠️ رسالة مكررة حديثة، تخطي الحفظ", "WARN")
-                    return True  # إرجاع True للإشارة إلى المعالجة (حتى لو مكررة)
-            else:
-                # في حالة فرض الحفظ، تحقق من التكرار الكامل
-                cursor = conn.execute('''
-                    SELECT id FROM sms 
-                    WHERE sender = ? AND content = ? AND received_date = ?
-                    LIMIT 1
-                ''', (normalized_sender, normalized_content, parsed_date))
-                
-                existing = cursor.fetchone()
-                if existing:
-                    print_status(f"📋 الرسالة موجودة بالفعل مع نفس التاريخ والمحتوى", "INFO")
-                    return True
-            
-            # حفظ الرسالة الجديدة مع ضمان تشفير UTF-8
+          with get_db_connection() as conn:
+            # التحقق من وجود رسالة مماثلة في آخر 5 دقائق (تجنب التكرار)
             cursor = conn.execute('''
-                INSERT INTO sms (status, sender, received_date, content, is_sent_to_telegram) 
-                VALUES (?, ?, ?, ?, 0)
-            ''', (normalized_status, normalized_sender, parsed_date, normalized_content))
+                SELECT id FROM sms 
+                WHERE sender = ? AND content = ? 
+                AND datetime(received_date) > datetime('now', '-5 minutes')
+                LIMIT 1
+            ''', (sender, content))
             
-            msg_id = cursor.lastrowid
-            print_status(f"📝 تم حفظ رسالة جديدة (ID: {msg_id}) في قاعدة البيانات مع تشفير UTF-8", "SUCCESS")
-            print_status(f"  📞 المرسل: {normalized_sender}", "DEBUG")
-            print_status(f"  📅 التاريخ: {parsed_date}", "DEBUG")
-            print_status(f"  📄 المحتوى: {normalized_content[:100]}...", "DEBUG")
+            existing = cursor.fetchone()
+            if existing:
+                print_status(f"⚠️ Duplicate message detected, skipping save", "WARN")
+                return True  # Return True to indicate "handled" (even if duplicate)
             
+            # حفظ الرسالة الجديدة
+            conn.execute(
+                'INSERT INTO sms (status, sender, received_date, content, is_sent_to_telegram) VALUES (?, ?, ?, ?, 0)',
+                (status, sender, parsed_date, content)
+            )
+            print_status(f"📝 New SMS saved to database", "SUCCESS")
             return True
             
     except sqlite3.Error as e:
         print_status(f"خطأ في حفظ الرسالة: {e}", "ERROR")
         return False
-
-def message_exists_comprehensive(sender, content):
-    """التحقق الشامل من وجود الرسالة (بدون قيود زمنية) مع ضمان تشفير UTF-8"""
-    try:
-        # Normalize UTF-8 for consistent comparison
-        normalized_sender = normalize_utf8(sender)
-        normalized_content = normalize_utf8(content)
-        
-        with get_db_connection(commit_on_success=False) as conn:
-            cursor = conn.execute('''
-                SELECT id, received_date FROM sms 
-                WHERE sender = ? AND content = ?
-                ORDER BY received_date DESC
-                LIMIT 1
-            ''', (normalized_sender, normalized_content))
-            result = cursor.fetchone()
-            if result:
-                print_status(f"📋 الرسالة موجودة مسبقاً (ID: {result['id']}, تاريخ: {result['received_date']})", "DEBUG")
-                return True
-            return False
-    except Exception as e:
-        print_status(f"خطأ في التحقق من وجود الرسالة: {e}", "ERROR")
-        return False
-
-def get_all_sms_comprehensive():
-    """جلب جميع الرسائل مع معلومات شاملة"""
-    try:
-        with get_db_connection(commit_on_success=False) as conn:
-            cursor = conn.execute('''
-                SELECT *, 
-                       CASE 
-                           WHEN is_sent_to_telegram = 1 THEN 'تم الإرسال'
-                           ELSE 'لم يتم الإرسال'
-                       END as telegram_status,
-                       CASE 
-                           WHEN deleted_from_sim = 1 THEN 'محذوف'
-                           ELSE 'موجود'
-                       END as sim_status
-                FROM sms 
-                ORDER BY received_date DESC
-            ''')
-            return [dict(row) for row in cursor.fetchall()]
-    except Exception as e:
-        print_status(f"خطأ في جلب جميع الرسائل: {e}", "ERROR")
-        return []
-
-def get_statistics_comprehensive():
-    """إحصائيات شاملة لقاعدة البيانات"""
-    try:
-        with get_db_connection(commit_on_success=False) as conn:
-            stats = {}
-            
-            # إجمالي الرسائل
-            cursor = conn.execute('SELECT COUNT(*) as total FROM sms')
-            stats['total_messages'] = cursor.fetchone()['total']
-            
-            # الرسائل المرسلة للتليجرام
-            cursor = conn.execute('SELECT COUNT(*) as sent FROM sms WHERE is_sent_to_telegram = 1')
-            stats['sent_to_telegram'] = cursor.fetchone()['sent']
-            
-            # الرسائل المحذوفة من الشريحة
-            cursor = conn.execute('SELECT COUNT(*) as deleted FROM sms WHERE deleted_from_sim = 1')
-            stats['deleted_from_sim'] = cursor.fetchone()['deleted']
-            
-            # إحصائيات حسب المرسل
-            cursor = conn.execute('''
-                SELECT sender, COUNT(*) as count 
-                FROM sms 
-                GROUP BY sender 
-                ORDER BY count DESC 
-                LIMIT 10
-            ''')
-            stats['top_senders'] = [dict(row) for row in cursor.fetchall()]
-            
-            # الرسائل اليومية (آخر 7 أيام)
-            cursor = conn.execute('''
-                SELECT DATE(received_date) as date, COUNT(*) as count 
-                FROM sms 
-                WHERE received_date > datetime('now', '-7 days')
-                GROUP BY DATE(received_date) 
-                ORDER BY date DESC
-            ''')
-            stats['daily_messages'] = [dict(row) for row in cursor.fetchall()]
-            
-            return stats
-            
-    except Exception as e:
-        print_status(f"خطأ في جلب الإحصائيات: {e}", "ERROR")
-        return {}
-
-def cleanup_duplicate_messages():
-    """تنظيف الرسائل المكررة مع الاحتفاظ بالأحدث"""
-    try:
-        with get_db_connection() as conn:
-            # العثور على الرسائل المكررة
-            cursor = conn.execute('''
-                SELECT sender, content, COUNT(*) as count, MIN(id) as keep_id
-                FROM sms 
-                GROUP BY sender, content 
-                HAVING COUNT(*) > 1
-            ''')
-            duplicates = cursor.fetchall()
-            
-            deleted_count = 0
-            for duplicate in duplicates:
-                # حذف النسخ المكررة مع الاحتفاظ بالأقدم (أصغر ID)
-                cursor = conn.execute('''
-                    DELETE FROM sms 
-                    WHERE sender = ? AND content = ? AND id != ?
-                ''', (duplicate['sender'], duplicate['content'], duplicate['keep_id']))
-                
-                deleted_count += cursor.rowcount
-            
-            print_status(f"🧹 تم حذف {deleted_count} رسالة مكررة", "SUCCESS")
-            return deleted_count
-            
-    except Exception as e:
-        print_status(f"خطأ في تنظيف الرسائل المكررة: {e}", "ERROR")
-        return 0
 
 def mark_message_deleted(msg_id):
     """تحديث حالة حذف الرسالة من الشريحة"""

@@ -1,5 +1,24 @@
-pyserial>=3.5
-python-telegram-bot>=13.7
-reportlab>=4.0.4
-arabic-reshaper>=3.0.0
-python-bidi>=0.4.2
+# SMS Processing and Communication
+pyserial>=3.5                    # Serial communication with GSM modem
+python-telegram-bot>=22.1        # Telegram bot API v22+ (latest stable)
+smspdudecoder>=2.1.1             # Professional PDU decoder - primary decoder
+chardet>=5.2.0                   # Character encoding detection
+
+# PDF Report Generation
+reportlab>=4.2.2                 # PDF generation for reports (latest)
+
+# Arabic Text Processing
+arabic-reshaper>=3.0.0           # Arabic text reshaping for display
+python-bidi>=0.4.2               # Bidirectional text support (Arabic/English)
+
+# Security and System
+cryptography>=42.0.0             # Latest encryption and security features
+psutil>=6.0.0                    # Latest system and process utilities
+
+# HTTP and Web (required by python-telegram-bot)
+httpx>=0.27.0                    # Modern HTTP client
+tornado>=6.4                     # Web framework and event loop
+
+# Optional: Additional SMS/PDU libraries for redundancy
+smspdu>=1.0                      # Alternative PDU library - excellent for SMS decoding
+# python-gsmmodem>=0.14          # Alternative modem library (if needed)

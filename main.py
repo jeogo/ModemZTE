@@ -15,7 +15,7 @@ logger = setup_logger('main')
 
 LOCK_FILE = 'bot.lock'
 if os.path.exists(LOCK_FILE):
-    print('❌ يوجد نسخة أخرى من البوت تعمل بالفعل. الرجاء إغلاقها أولاً.')
+    print('يوجد نسخة أخرى من البوت تعمل بالفعل. الرجاء إغلاقها أولاً.')
     exit(1)
 with open(LOCK_FILE, 'w') as f:
     f.write('lock')
@@ -40,7 +40,8 @@ def run_modem_service():
             time.sleep(5)
 
 def run_telegram_service():
-    # انتظر حتى يصبح النظام جاهزاً قبل بدء البوت (حتى في التشغيل المنفصل)
+    """Run the Telegram bot service"""
+    # انتظر حتى يصبح النظام جاهزاً قبل بدء البوت
     from src.utils.paths import DATA_DIR
     import os, time
     sms_ready_flag = DATA_DIR / 'sms_ready.flag'
@@ -51,15 +52,21 @@ def run_telegram_service():
         waited += 1
         if waited % 10 == 0:
             print_status(f"[SYSTEM] Still waiting for SMS system... ({waited}s)", "INFO")
-    print_status("[SYSTEM] ✓ SMS System Ready - Starting Telegram bot...", "SUCCESS")
+    print_status("[SYSTEM] SMS System Ready - Starting Telegram bot...", "SUCCESS")
     time.sleep(2)
+    
     try:
+        from src.bot.telegram_bot import run_bot
         run_bot()
     except KeyboardInterrupt:
         print("\n[Telegram] Bot stopped by user (Ctrl+C)")
+        import sys
         sys.exit(0)
     except Exception as e:
         print_status(f"[Telegram] Critical error: {e}", "ERROR")
+        import traceback
+        print_status(f"[Telegram] Traceback: {traceback.format_exc()}", "ERROR")
+        import sys
         sys.exit(1)
 
 def print_usage():

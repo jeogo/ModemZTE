@@ -1,9 +1,11 @@
 import sqlite3
-from src.utils.config import DB_PATH
 from datetime import datetime, timedelta
+from src.utils.config import DB_PATH, ALLOWED_SENDER
+from src.utils.db import get_transaction_by_details
+from src.sms.advanced_message_processor import MessageProcessor
 
 # الرقم الوحيد المسموح بالتحقق منه
-ALLOWED_SENDER = "7711198105108105115"
+# ALLOWED_SENDER = "7711198105108105115"
 
 # دالة استخراج المبلغ والتاريخ والوقت من نص الرسالة
 import re
@@ -18,24 +20,88 @@ def extract_recharge_info(content):
         }
     return None
 
-def verify_transaction(amount, date, time, margin_minutes=5):
+def verify_transaction(amount, date, time):
     """
-    التحقق من وجود عملية تعبئة بنفس المبلغ والتاريخ والوقت (مع هامش دقائق)
+    التحقق من وجود عملية تعبئة بنفس المبلغ والتاريخ والوقت.
+    يبحث أولاً عن تطابق تام (مع تجاهل الثواني)،
+    ثم يبحث بهامش ±3 دقائق فقط إذا لم يجد تطابق تام.
     """
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     try:
-        # ابحث فقط عن الرسائل من الرقم المسموح
-        c.execute('''SELECT content, received_date FROM sms WHERE sender = ?''', (ALLOWED_SENDER,))
-        rows = c.fetchall()
-        target_dt = datetime.strptime(f"{date} {time}", "%d/%m/%Y %H:%M")
-        for content, received_date in rows:
-            info = extract_recharge_info(content)
-            if not info:
-                continue
-            msg_dt = datetime.strptime(f"{info['date']} {info['time']}", "%d/%m/%Y %H:%M")
-            if abs((msg_dt - target_dt).total_seconds()) <= margin_minutes * 60 and float(info['amount']) == float(amount):
-                return True
+        # البحث عن تطابق تام أولاً
+        exact_match = get_transaction_by_details(amount, date, time)
+        if exact_match:
+            return True
+            
+        # إذا لم يجد تطابق تام، ابحث بهامش ±3 دقائق
+        margin_match = get_transaction_by_details(amount, date, time, margin_minutes=3)
+        return bool(margin_match)
+        
+    except Exception as e:
+        print(f"خطأ في التحقق من العملية: {e}")
         return False
-    finally:
-        conn.close()
+
+def process_sms_advanced(message_bytes: bytes) -> dict:
+    """
+    معالجة متقدمة لرسائل SMS باستخدام المعالج المتقدم
+    يستخرج المبلغ والتاريخ والوقت بشكل ذكي ودقيق
+    """
+    processor = MessageProcessor()
+    result = processor.process_message(message_bytes)
+    
+    if result['success'] and result['amount'] and result['datetime']:
+        date_str = result['datetime'].strftime('%d/%m/%Y')
+        time_str = result['datetime'].strftime('%H:%M')
+        
+        return {
+            'success': True,
+            'amount': result['amount'],
+            'date': date_str,
+            'time': time_str,
+            'cleaned_text': result['cleaned']
+        }
+    
+    # إذا فشل المعالج المتقدم، جرب الطريقة التقليدية
+    basic_result = extract_recharge_info(message_bytes.decode('utf-8', errors='replace'))
+    if basic_result:
+        return {
+            'success': True,
+            **basic_result,
+            'cleaned_text': message_bytes.decode('utf-8', errors='replace').strip()
+        }
+        
+    return {
+        'success': False,
+        'error': result.get('error', 'فشل في استخراج المعلومات')
+    }
+
+def verify_transaction_advanced(message_bytes: bytes):
+    """
+    التحقق من العملية باستخدام المعالج المتقدم للرسائل
+    يدعم أنماط مختلفة من الرسائل وترميزات متعددة
+    """
+    try:
+        # معالجة الرسالة باستخدام المعالج المتقدم
+        info = process_sms_advanced(message_bytes)
+        
+        if not info['success']:
+            return False, "لم نتمكن من استخراج المعلومات من الرسالة"
+            
+        # التحقق من العملية
+        verified = verify_transaction(
+            amount=info['amount'],
+            date=info['date'],
+            time=info['time']
+        )
+        
+        if verified:
+            return True, {
+                'amount': info['amount'],
+                'date': info['date'],
+                'time': info['time'],
+                'text': info['cleaned_text']
+            }
+        
+        return False, "لم نجد عملية مطابقة"
+        
+    except Exception as e:
+        return False, f"حدث خطأ أثناء التحقق: {str(e)}"

@@ -7,9 +7,6 @@ __pycache__/
 *.db
 *.sqlite3
 
-# Logs
-*.log
-
 # Environment files
 .env
 venv/
